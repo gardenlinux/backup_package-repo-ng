@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -exuo pipefail
+shopt -s nullglob
+
+target="$(realpath "$1")"
+releases="$(realpath "$2")"
+import_list="$(realpath "$3")"
+
+dir="$(mktemp -d)"
+trap 'cd / && rm -rf "$dir"' EXIT
+cd "$dir"
+
+arch="$(dpkg --print-architecture)"
+
+mkdir download
+while read -r repo tag; do
+	gh release download --dir download --repo "$repo" "$tag"
+done < "$releases"
+
+mv download/*_all.deb download/*_"$arch".deb "$target/"
+rm -rf download
+
+dpkg-scanpackages -m "$target" > Packages
+awk -F ': ' '$1 == "Package" { print $2 }' < Packages | sort | uniq > pkgs
+awk -F ': ' '$1 == "Depends" || $1 == "Pre-Depends" { print $2 }' < Packages | tr ',' '\n' | awk '{ print $1 }' | sort | uniq > depends
+
+cat "$import_list" >> depends
+aptitude search '?priority(required)|?priority(important)' -F '%p' -q | cut -d : -f 1 >> depends
+
+sort -o depends -u depends
+join -v 1 depends pkgs > needed
+
+apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances $(cat needed) | grep '^\w' | cut -d : -f 1 | sort | uniq > recursive_depends
+join -v 1 recursive_depends pkgs > recursive_needed
+
+mkdir apt_download
+(cd apt_download && apt-get download $(cat ../recursive_needed))
+
+mv --no-clobber apt_download/*.deb "$target/"

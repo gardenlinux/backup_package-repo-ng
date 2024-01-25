@@ -1,0 +1,34 @@
+name: build
+run-name: ${{ github.ref_name }}
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: setup binfmt
+        run: sudo podman run --privileged ghcr.io/gardenlinux/binfmt_container
+      - uses: actions/checkout@v4
+      - name: download amd64 packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          container="$(cat .container)"
+          podman pull "$container"
+          podman build -t build --build-arg base="$container" .
+          mkdir pkgs
+          podman run --rm -v "$PWD/pkgs:/pkgs" -v "$PWD/package-releases:/package-releases" -v "$PWD/package-imports:/package-imports" -e GH_TOKEN build /download_pkgs /pkgs /package-releases /package-imports
+      - name: download arm64 packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          container="$(cat .container)"
+          podman pull --arch arm64 "$container"
+          podman build -t build --build-arg base="$container" .
+          mkdir pkgs_arm64
+          podman run --rm -v "$PWD/pkgs_arm64:/pkgs" -v "$PWD/package-releases:/package-releases" -v "$PWD/package-imports:/package-imports" -e GH_TOKEN build /download_pkgs /pkgs /package-releases /package-imports
+          mv --no-clobber pkgs_arm64/* pkgs/
+          rm -rf pkgs_arm64
