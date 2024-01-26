@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -eufo pipefail
+
+org=gardenlinux
+match_pattern='^package-.*-ng'
+exclude_pattern='package-repo-ng|package-build-ng'
+
+gh api --paginate "/orgs/$org/repos" | jq -r '.[] | .name' | grep -xE "$match_pattern" | grep -vxE "$exclude_pattern" | while read -r repo; do
+	tag="$(gh api "/repos/$org/$repo/releases/latest" | jq -r '.tag_name')"
+	echo "$org/$repo $tag"
+done
